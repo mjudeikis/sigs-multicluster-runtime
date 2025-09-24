@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/go-logr/logr"
 
@@ -245,8 +246,16 @@ func (m *mcManager) GetFieldIndexer() client.FieldIndexer {
 func (m *mcManager) Start(ctx context.Context) error {
 	// if provider is a ProviderRunnable, add it as last runnable before starting.
 	if runnable, ok := m.GetProvider().(multicluster.ProviderRunnable); ok {
+		var once sync.Once
 		if err := m.Manager.Add(manager.RunnableFunc(func(ctx context.Context) error {
-			return runnable.Start(ctx, m)
+			// We should always run this once and only once. So to ensure that, developers
+			// by mistake don't call runnable.Run() directly, we wrap it in a function that
+			// than will will ensure its called only once.
+			var startErr error
+			once.Do(func() {
+				startErr = runnable.Start(ctx, m)
+			})
+			return startErr
 		})); err != nil {
 			return err
 		}
